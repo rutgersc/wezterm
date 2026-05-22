@@ -14,6 +14,12 @@ $ErrorActionPreference = 'Stop'
 $repo     = $PSScriptRoot
 $cargoBin = Join-Path $env:USERPROFILE '.cargo\bin'
 
+# openssl-sys builds OpenSSL from source via `perl Configure`. The MSYS
+# perl shipped with Git for Windows is missing Locale::Maketext::Simple,
+# so the build fails. Strawberry Perl has the full CPAN stack — put it
+# first on PATH for the duration of this script.
+$env:PATH = "C:\Strawberry\perl\bin;$env:PATH"
+
 Push-Location $repo
 try {
     cargo install --path wezterm-gui --bin wezterm-gui --force
