@@ -26,14 +26,27 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "cargo install failed (exit $LASTEXITCODE)" }
 
     $built = Join-Path $repo 'target\release'
+    # If a running wezterm-gui has already LoadLibrary'd these from
+    # $cargoBin, the file is held open and Copy-Item -Force will fail.
+    # Skip the copy when the destination is already at the wanted version.
     foreach ($name in 'OpenConsole.exe', 'conpty.dll') {
         $src = Join-Path $built $name
+        $dst = Join-Path $cargoBin $name
         if (-not (Test-Path $src)) {
             throw "missing $name in $built (build.rs should have placed it there)"
         }
-        Copy-Item $src $cargoBin -Force
-        $ver = (Get-Item (Join-Path $cargoBin $name)).VersionInfo.FileVersion
-        Write-Host "  installed $name $ver -> $cargoBin"
+        $srcVer = (Get-Item $src).VersionInfo.FileVersion
+        $dstVer = if (Test-Path $dst) { (Get-Item $dst).VersionInfo.FileVersion } else { $null }
+        if ($dstVer -eq $srcVer) {
+            Write-Host "  $name $dstVer already in $cargoBin (skip)"
+            continue
+        }
+        try {
+            Copy-Item $src $dst -Force -ErrorAction Stop
+            Write-Host "  installed $name $srcVer -> $cargoBin (was $dstVer)"
+        } catch {
+            Write-Warning "could not overwrite $dst (likely held by a running process). Close any wezterm/zellij and re-run, or accept current $dstVer."
+        }
     }
     Write-Host "done." -ForegroundColor Green
 } finally {
