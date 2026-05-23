@@ -8,6 +8,18 @@
 # just runs cargo install and then copies the ConPTY pair to ~/.cargo/bin
 # next to the freshly installed wezterm-gui.exe.
 #
+# Why this is safe again (it wasn't between 2026-05-23 morning and the
+# kitty-ESC fix on branch ad4c3cac-kitty-esc-fix): v1.24.260X conpty.dll
+# has an input-side cache-instead-of-flush regression that strands lone
+# `\x1b` bytes once win32-input-mode has been observed by OpenConsole.
+# Wezterm WAS sending bare `\x1b` for the ESC key in violation of the
+# kitty spec, triggering the regression and breaking ESC in zellij. The
+# kitty-ESC fix on the rutger/main lineage makes wezterm emit ESC as
+# `\x1b[27;1u` per spec, so the regression never trips. Now the sideload
+# is safe.
+# Full writeup:
+#   C:/Projects/foam/learnings/learning-2026-05-23-wezterm-conpty-v1.24-esc-regression.md
+#
 # Idempotent. Re-run after any pull / asset bump.
 
 $ErrorActionPreference = 'Stop'

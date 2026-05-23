@@ -1723,6 +1723,23 @@ impl KeyEvent {
             match &self.key {
                 Char('\x08') => return '\x7f'.to_string(),
                 Char('\x7f') => return '\x08'.to_string(),
+                // ESC must NOT take the bare-byte fast path: kitty's
+                // progressive-enhancement spec requires that whenever ANY
+                // enhancement level is enabled, the terminal reports ESC as
+                // `CSI 27 u` to disambiguate it from a sequence prefix.
+                // Falling through to the general CSI-u encoder below gives
+                // us `\x1b[27;1u` which is what the spec mandates.
+                //
+                // Practically, sending bare \x1b for ESC also trips a
+                // permanent buffering regression in Microsoft ConPTY
+                // v1.24.260X: once any win32-input-mode CSI has been
+                // observed, OpenConsole's state machine caches trailing
+                // partial sequences (including a lone \x1b) instead of
+                // flushing them at the end of ProcessString — so the ESC
+                // never reaches the child until the next byte arrives.
+                // See microsoft/terminal@2546c02ad and
+                // C:/Projects/foam/learnings/learning-2026-05-23-wezterm-conpty-v1.24-esc-regression.md
+                Char('\x1b') => {}
                 Char(c) => return c.to_string(),
                 _ => {}
             }
