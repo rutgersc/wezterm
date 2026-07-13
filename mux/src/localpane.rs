@@ -489,6 +489,10 @@ impl Pane for LocalPane {
         self.terminal.lock().focus_changed(focused);
     }
 
+    fn appearance_changed(&self, dark: bool) {
+        self.terminal.lock().color_scheme_changed(dark);
+    }
+
     fn has_unseen_output(&self) -> bool {
         self.terminal.lock().has_unseen_output()
     }

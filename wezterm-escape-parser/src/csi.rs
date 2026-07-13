@@ -457,6 +457,10 @@ pub enum Device {
     RequestSecondaryDeviceAttributes,
     RequestTertiaryDeviceAttributes,
     StatusReport,
+    /// <https://contour-terminal.org/vt-extensions/color-palette-update-notifications/>
+    /// One-shot query of the terminal's current dark/light color scheme;
+    /// answered with `CSI ? 997 ; {1|2} n`
+    RequestColorSchemeReport,
     /// https://github.com/mintty/mintty/issues/881
     /// https://gitlab.gnome.org/GNOME/vte/-/issues/235
     RequestTerminalNameAndVersion,
@@ -482,6 +486,7 @@ impl Display for Device {
             Device::RequestTerminalNameAndVersion => write!(f, ">q")?,
             Device::RequestTerminalParameters(n) => write!(f, "{};1;1;128;128;1;0x", n + 2)?,
             Device::StatusReport => write!(f, "5n")?,
+            Device::RequestColorSchemeReport => write!(f, "?996n")?,
             Device::XtSmGraphics(g) => {
                 write!(f, "?{};{}", g.item, g.action_or_status)?;
                 for v in &g.value {
@@ -953,6 +958,11 @@ pub enum DecPrivateModeCode {
 
     /// <https://gist.github.com/christianparpart/d8a62cc1ab659194337d73e399004036>
     SynchronizedOutput = 2026,
+
+    /// <https://contour-terminal.org/vt-extensions/color-palette-update-notifications/>
+    /// Notify the application when the color scheme changes between
+    /// dark and light via an unsolicited DSR 997 report
+    ColorSchemeReporting = 2031,
 
     MinTTYApplicationEscapeKeyMode = 7727,
 
@@ -1849,6 +1859,9 @@ impl<'a> CSIParser<'a> {
                 .map(|dev| CSI::Device(Box::new(dev))),
 
             ('S', [CsiParam::P(b'?'), ..]) => XtSmGraphics::parse(params),
+            ('n', [CsiParam::P(b'?'), CsiParam::Integer(996)]) => {
+                Ok(CSI::Device(Box::new(Device::RequestColorSchemeReport)))
+            }
             ('p', [CsiParam::Integer(_), CsiParam::P(b'$')])
             | ('p', [CsiParam::P(b'?'), CsiParam::Integer(_), CsiParam::P(b'$')]) => {
                 self.decrqm(params)

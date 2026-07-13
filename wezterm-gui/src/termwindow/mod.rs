@@ -553,6 +553,28 @@ impl TermWindow {
         self.emit_window_event("window-focus-changed", None);
     }
 
+    /// Push the current OS appearance into every pane in this window so
+    /// apps can query it (CSI ?996n) or subscribe to changes (DECSET 2031).
+    /// TerminalState dedupes, so redundant calls are cheap.
+    fn sync_pane_color_scheme(&mut self) {
+        let Some(conn) = Connection::get() else {
+            return;
+        };
+        let dark = matches!(
+            conn.get_appearance(),
+            Appearance::Dark | Appearance::DarkHighContrast
+        );
+        let mux = Mux::get();
+        let window = mux.get_window(self.mux_window_id);
+        if let Some(window) = window {
+            for tab in window.iter() {
+                for pane in tab.iter_panes_ignoring_zoom() {
+                    pane.pane.appearance_changed(dark);
+                }
+            }
+        }
+    }
+
     fn created(&mut self, ctx: RenderContext) -> anyhow::Result<()> {
         self.render_state = None;
 
@@ -576,6 +598,8 @@ impl TermWindow {
         if self.render_state.is_none() {
             panic!("No OpenGL");
         }
+
+        self.sync_pane_color_scheme();
 
         Ok(())
     }
@@ -929,6 +953,7 @@ impl TermWindow {
                 // <https://github.com/wezterm/wezterm/issues/2295>
                 config::reload();
                 self.config_was_reloaded();
+                self.sync_pane_color_scheme();
                 Ok(true)
             }
             WindowEvent::PerformKeyAssignment(action) => {
@@ -1308,8 +1333,13 @@ impl TermWindow {
                 MuxNotification::TabTitleChanged { .. } => {
                     self.update_title_post_status();
                 }
-                MuxNotification::PaneAdded(_)
-                | MuxNotification::WorkspaceRenamed { .. }
+                MuxNotification::PaneAdded(_) => {
+                    // Seed the new pane with the current appearance so a
+                    // CSI ?996n query can be answered before the first
+                    // AppearanceChanged event.
+                    self.sync_pane_color_scheme();
+                }
+                MuxNotification::WorkspaceRenamed { .. }
                 | MuxNotification::PaneRemoved(_)
                 | MuxNotification::WindowWorkspaceChanged(_)
                 | MuxNotification::ActiveWorkspaceChanged(_)

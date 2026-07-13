@@ -1373,3 +1373,68 @@ fn test_hyperlinks() {
         Compare::TEXT | Compare::ATTRS,
     );
 }
+
+#[test]
+fn color_scheme_reporting() {
+    #[derive(Clone)]
+    struct Sink(Arc<Mutex<Vec<u8>>>);
+    impl std::io::Write for Sink {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let sink = Sink(Arc::new(Mutex::new(Vec::new())));
+    let mut term = Terminal::new(
+        TerminalSize::default(),
+        Arc::new(TestTermConfig { scrollback: 0 }),
+        "WezTerm",
+        "O_o",
+        Box::new(sink.clone()),
+    );
+    // Replies are delivered via ThreadedWriter, so they land on the
+    // sink asynchronously: poll for them.
+    let expect_reply = |sink: &Sink, expected: &[u8]| {
+        for _ in 0..500 {
+            if !sink.0.lock().unwrap().is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert_eq!(std::mem::take(&mut *sink.0.lock().unwrap()), expected);
+    };
+    let expect_silence = |sink: &Sink| {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert_eq!(std::mem::take(&mut *sink.0.lock().unwrap()), b"");
+    };
+
+    // appearance unknown: query stays conformantly unanswered
+    term.advance_bytes("\x1b[?996n");
+    expect_silence(&sink);
+
+    // appearance known but not subscribed: no unsolicited report...
+    term.color_scheme_changed(false);
+    expect_silence(&sink);
+    // ...but the query is answered (2 = light)
+    term.advance_bytes("\x1b[?996n");
+    expect_reply(&sink, b"\x1b[?997;2n");
+
+    // subscribed: changes produce unsolicited reports (1 = dark), deduped
+    term.advance_bytes("\x1b[?2031h");
+    term.color_scheme_changed(true);
+    expect_reply(&sink, b"\x1b[?997;1n");
+    term.color_scheme_changed(true);
+    expect_silence(&sink);
+
+    // DECRQM reflects the subscription state
+    term.advance_bytes("\x1b[?2031$p");
+    expect_reply(&sink, b"\x1b[?2031;1$y");
+
+    // unsubscribed: changes go silent again
+    term.advance_bytes("\x1b[?2031l");
+    term.color_scheme_changed(false);
+    expect_silence(&sink);
+}

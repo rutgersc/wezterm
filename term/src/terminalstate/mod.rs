@@ -311,6 +311,12 @@ pub struct TerminalState {
     /// Movement events enabled
     any_event_mouse: bool,
     focus_tracking: bool,
+    /// DECSET 2031: report dark/light color scheme changes via DSR 997
+    color_scheme_reporting: bool,
+    /// Current dark/light appearance as last pushed by the GUI layer.
+    /// None when no GUI has reported it (e.g. mux server), in which case
+    /// CSI ?996n queries stay conformantly unanswered.
+    color_scheme_is_dark: Option<bool>,
     /// X10 (legacy), SGR, and SGR-Pixels style mouse tracking and
     /// reporting is enabled
     mouse_encoding: MouseEncoding,
@@ -538,6 +544,8 @@ impl TerminalState {
             application_keypad: false,
             bracketed_paste: false,
             focus_tracking: false,
+            color_scheme_reporting: false,
+            color_scheme_is_dark: None,
             mouse_encoding: MouseEncoding::X10,
             keyboard_encoding: KeyboardEncoding::Xterm,
             sixel_scrolls_right: false,
@@ -791,6 +799,21 @@ impl TerminalState {
         self.focused = focused;
         if !focused {
             self.lost_focus_seqno = self.seqno;
+        }
+    }
+
+    /// Called when the GUI layer learns or changes the window's dark/light
+    /// appearance. Emits an unsolicited DSR 997 report when the app
+    /// subscribed via DECSET 2031.
+    /// <https://contour-terminal.org/vt-extensions/color-palette-update-notifications/>
+    pub fn color_scheme_changed(&mut self, dark: bool) {
+        if self.color_scheme_is_dark == Some(dark) {
+            return;
+        }
+        self.color_scheme_is_dark = Some(dark);
+        if self.color_scheme_reporting {
+            write!(self.writer, "\x1b[?997;{}n", if dark { 1 } else { 2 }).ok();
+            self.writer.flush().ok();
         }
     }
 
@@ -1336,6 +1359,16 @@ impl TerminalState {
                 self.writer.write(b"\x1b[0n").ok();
                 self.writer.flush().ok();
             }
+            Device::RequestColorSchemeReport => {
+                // The spec defines only 1 (dark) / 2 (light); stay silent
+                // until the GUI has reported the appearance.
+                if let Some(dark) = self.color_scheme_is_dark {
+                    self.writer
+                        .write(format!("\x1b[?997;{}n", if dark { 1 } else { 2 }).as_bytes())
+                        .ok();
+                    self.writer.flush().ok();
+                }
+            }
             Device::XtSmGraphics(g) => {
                 let response = if matches!(g.item, XtSmGraphicsItem::Unspecified(_)) {
                     XtSmGraphics {
@@ -1813,6 +1846,22 @@ impl TerminalState {
             }
             Mode::QueryDecPrivateMode(DecPrivateMode::Code(DecPrivateModeCode::FocusTracking)) => {
                 self.decqrm_response(mode, true, self.focus_tracking);
+            }
+
+            Mode::SetDecPrivateMode(DecPrivateMode::Code(
+                DecPrivateModeCode::ColorSchemeReporting,
+            )) => {
+                self.color_scheme_reporting = true;
+            }
+            Mode::ResetDecPrivateMode(DecPrivateMode::Code(
+                DecPrivateModeCode::ColorSchemeReporting,
+            )) => {
+                self.color_scheme_reporting = false;
+            }
+            Mode::QueryDecPrivateMode(DecPrivateMode::Code(
+                DecPrivateModeCode::ColorSchemeReporting,
+            )) => {
+                self.decqrm_response(mode, true, self.color_scheme_reporting);
             }
 
             Mode::SetDecPrivateMode(DecPrivateMode::Code(DecPrivateModeCode::SGRMouse)) => {

@@ -267,6 +267,10 @@ pub trait Pane: Downcast + Send + Sync {
     /// Called to advise on whether this tab has focus
     fn focus_changed(&self, _focused: bool) {}
 
+    /// Called when the window's dark/light appearance is known or changes,
+    /// so apps that subscribed via DECSET 2031 can be notified
+    fn appearance_changed(&self, _dark: bool) {}
+
     /// Called to advise remote mux that this is the active tab
     /// for the current identity
     fn advise_focus(&self) {}
