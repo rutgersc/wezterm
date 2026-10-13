@@ -36,6 +36,8 @@ Push-Location $repo
 try {
     cargo install --path wezterm-gui --bin wezterm-gui --force
     if ($LASTEXITCODE -ne 0) { throw "cargo install failed (exit $LASTEXITCODE)" }
+    cargo install --path wezterm --bin wezterm --force
+    if ($LASTEXITCODE -ne 0) { throw "cargo install failed (exit $LASTEXITCODE)" }
 
     $built = Join-Path $repo 'target\release'
     # If a running wezterm-gui has already LoadLibrary'd these from
